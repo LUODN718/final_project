@@ -1,4 +1,4 @@
-`timescale 1ns / 1ps//可弹球版本
+`timescale 1ns / 1ps
 module game_core(
     input wire vga_clk,      // VGA 时钟：25.175 MHz
     input wire sys_rst_n,    // 系统复位（低电平有效）
@@ -25,8 +25,8 @@ module game_core(
     localparam PADDLE_W = 80;
     localparam PADDLE_H = 10;
     localparam BALL_RADIUS = 10;
-    localparam BALL_SPEED  = 2;
-    localparam PADDLE_SPEED = 3;
+    localparam BALL_SPEED  = 3;
+    localparam PADDLE_SPEED = 10;
 
     // === 帧结束信号 ===
     wire frame_end = (pix_x == H_VALID-1) && (pix_y == V_VALID-1);
@@ -89,7 +89,7 @@ module game_core(
         // === 3. 木板碰撞（预测 + 宽容区间）===
         // 木板顶部 Y = V_VALID - PADDLE_H
         // 小球底部进入木板区域：ball_y_next + BALL_RADIUS >= 木板顶部
-         // 宽容区间：防止速度过快跳过
+        // 宽容区间：防止速度过快跳过
         if (ball_y_next + BALL_RADIUS >= V_VALID - PADDLE_H &&
             ball_y_next - BALL_RADIUS <= V_VALID - PADDLE_H + BALL_SPEED + 2 &&
             ball_x_next >= paddle_x - PADDLE_W/2 &&
@@ -118,11 +118,8 @@ module game_core(
         end
         else if (frame_end && state == STATE_PLAY) begin
             // 木板移动
-            if (btn_left_press && paddle_x > PADDLE_W/2)
-                paddle_x <= paddle_x - PADDLE_SPEED;
-            if (btn_right_press && paddle_x < H_VALID - PADDLE_W/2 - 1)
-                paddle_x <= paddle_x + PADDLE_SPEED;
-
+            if (!btn_left  && paddle_x > PADDLE_W/2)        paddle_x <= paddle_x - 3;
+            if (!btn_right && paddle_x < H_VALID - PADDLE_W/2 - 1) paddle_x <= paddle_x + 3;
             // 小球更新（使用预测值）
             ball_x <= ball_x_next;
             ball_y <= ball_y_next;
