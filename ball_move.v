@@ -2,10 +2,10 @@
 module ball_move(
     input wire sys_clk,
     input wire sys_rst_n,
-    input wire up,      // 可复用为“开始/重玩”
-    input wire down,    // 可选
-    input wire left,    // 控制板子左移
-    input wire right,   // 控制板子右移
+    input wire up,      
+    input wire down,    
+    input wire left,   
+    input wire right,   
     output wire hsync,
     output wire vsync,
     output wire [15:0] rgb
@@ -22,7 +22,7 @@ module ball_move(
  .vga_clk(vga_clk)
  );
 
- //------------- vga_ctrl_inst -------------
+
  vga_ctrl vga_ctrl_inst
  (
  .vga_clk (vga_clk ), //VGA working clock, 25MHz
@@ -36,7 +36,7 @@ module ball_move(
  .rgb (rgb ) //RGB565 color data
  );
 
-    // 新增：游戏核心模块（含 FSM）
+
     game_core game_inst (
         .vga_clk    (vga_clk),
         .sys_rst_n  (sys_rst_n),
@@ -44,7 +44,7 @@ module ball_move(
         .pix_y      (pix_y),
         .btn_left   (left),
         .btn_right  (right),
-        .btn_start  (up),      // 任意键开始
+        .btn_start  (up),      
         .pix_data   (pix_data)
     );
 
