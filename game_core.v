@@ -1,58 +1,48 @@
-`timescale 1ns / 1ps
-
+`timescale 1ns/1ps
 module game_core (
-    input  wire        vga_clk,      // 25.175 MHz
-    input  wire        sys_rst_n,
-    input  wire [9:0]  pix_x,
-    input  wire [9:0]  pix_y,
-    input  wire        btn_left,
-    input  wire        btn_right,
-    input  wire        btn_start,
-    output reg  [15:0] pix_data
+    input wire vga_clk, // 25.175 MHz
+    input wire sys_rst_n,
+    input wire [9:0] pix_x,
+    input wire [9:0] pix_y,
+    input wire btn_left,
+    input wire btn_right,
+    input wire btn_start,
+    output reg [15:0] pix_data
 );
-
     // === VGA 参数 ===
     parameter H_VALID = 10'd640;
     parameter V_VALID = 10'd480;
-
     // === 颜色定义 (RGB565) ===
-    localparam RED    = 16'hF800;
-    localparam BLACK  = 16'h0000;
-    localparam WHITE  = 16'hFFFF;
-    localparam GREEN  = 16'h07E0;   // 砖块颜色
-    localparam YELLOW = 16'hFFE0;   // 得分文字
-
+    localparam RED = 16'hF800;
+    localparam BLACK = 16'h0000;
+    localparam WHITE = 16'hFFFF;
+    localparam GREEN = 16'h07E0;
     // === 游戏参数 ===
-    localparam PADDLE_W     = 80;
-    localparam PADDLE_H     = 10;
-    localparam BALL_RADIUS  = 10;
-    localparam BALL_SPEED   = 12;
+    localparam PADDLE_W = 80;
+    localparam PADDLE_H = 10;
+    localparam BALL_RADIUS = 10;
+    localparam BALL_SPEED = 15;
     localparam PADDLE_SPEED = 25;
-
     // === 砖块参数 ===
-    localparam BRICK_W      = 60;
-    localparam BRICK_H      = 20;
-    localparam BRICK_COLS   = 8;
-    localparam BRICK_ROWS   = 5;
+    localparam BRICK_W = 60;
+    localparam BRICK_H = 20;
+    localparam BRICK_COLS = 8;
+    localparam BRICK_ROWS = 5;
     localparam BRICK_START_X = 40;
     localparam BRICK_START_Y = 150;
-    localparam BRICK_GAP    = 4;
-
+    localparam BRICK_GAP = 4;
     // === 帧结束信号 ===
     wire frame_end = (pix_x == H_VALID-1) && (pix_y == V_VALID-1);
-
     // === 按键消抖 ===
     reg btn_start_d, btn_left_d, btn_right_d;
     always @(posedge vga_clk) begin
         btn_start_d <= btn_start;
-        btn_left_d  <= btn_left;
+        btn_left_d <= btn_left;
         btn_right_d <= btn_right;
     end
-
     wire btn_start_press = !btn_start && btn_start_d;
-    wire btn_left_press  = !btn_left  && btn_left_d;
+    wire btn_left_press = !btn_left && btn_left_d;
     wire btn_right_press = !btn_right && btn_right_d;
-
     // === FSM 状态机 ===
     typedef enum logic [2:0] {
         STATE_START,
@@ -60,51 +50,45 @@ module game_core (
         STATE_END,
         STATE_WIN
     } state_t;
-
     state_t state, next_state;
-
     always @(posedge vga_clk or negedge sys_rst_n)
         if (!sys_rst_n) state <= STATE_START;
-        else            state <= next_state;
-
-   always @(*) begin
-    next_state = state;
-    case (state)
-        STATE_START: if (btn_start_press)     next_state = STATE_PLAY;
-        STATE_PLAY:  if (ball_y_next >= V_VALID - BALL_RADIUS) 
-                        next_state = STATE_END;
-                     else if (bricks_all_clear) 
-                        next_state = STATE_WIN;
-        STATE_END,
-        STATE_WIN:   if (btn_start_press)     next_state = STATE_START;
-        default:     next_state = STATE_START;
-    endcase
-end
-
+        else state <= next_state;
+    always @(*) begin
+        next_state = state;
+        case (state)
+            STATE_START: if (btn_start_press) next_state = STATE_PLAY;
+            STATE_PLAY: if (ball_y_next >= V_VALID - BALL_RADIUS)
+                            next_state = STATE_END;
+                        else if (bricks_all_clear)
+                            next_state = STATE_WIN;
+            STATE_END,
+            STATE_WIN: if (btn_start_press) next_state = STATE_PLAY; 
+            default: next_state = STATE_START;
+        endcase
+    end
     // === 游戏对象寄存器 ===
     reg [9:0] ball_x = 320, ball_y = 100;
-    reg       ball_dx = 1;      // 1=右 0=左
-    reg       ball_dy = 1;      // 1=下 0=上
+    reg ball_dx = 1; // 1=右 0=左
+    reg ball_dy = 1; // 1=下 0=上
     reg [9:0] paddle_x = 280;
-
     // === 砖块存在寄存器 ===
     reg [BRICK_COLS*BRICK_ROWS-1:0] brick_alive;
     wire bricks_all_clear = (brick_alive == {BRICK_COLS*BRICK_ROWS{1'b0}});
-
     // 初始化/重新开始时所有砖块都存在
     always @(posedge vga_clk or negedge sys_rst_n) begin
         if (!sys_rst_n)
             brick_alive <= {BRICK_COLS*BRICK_ROWS{1'b1}};
-        else if (state == STATE_START && btn_start_press)
+        else if ((state == STATE_START && btn_start_press) ||
+                 (state == STATE_END && btn_start_press) ||
+                 (state == STATE_WIN && btn_start_press)) // 修改：添加 END/WIN 时按键重置砖块
             brick_alive <= {BRICK_COLS*BRICK_ROWS{1'b1}};
     end
-
     // === 预测下一帧位置与方向 ===
-    reg [9:0] ball_x_next, ball_y_next;
-    reg       ball_dx_next, ball_dy_next;
-    reg       hit_brick_this_frame;
+     reg [9:0] ball_x_next, ball_y_next;
+    reg ball_dx_next, ball_dy_next;
+    reg hit_brick_this_frame;
     reg [7:0] brick_to_destroy = 8'd255;
-
     always @(*) begin
         // 默认运动
         ball_x_next = ball_dx ? ball_x + BALL_SPEED : ball_x - BALL_SPEED;
@@ -113,26 +97,22 @@ end
         ball_dy_next = ball_dy;
         hit_brick_this_frame = 0;
         brick_to_destroy = 8'd255;
-
         // 左右墙反弹
         if (ball_x_next <= BALL_RADIUS || ball_x_next >= H_VALID - 1 - BALL_RADIUS)
             ball_dx_next = ~ball_dx_next;
-
         // 上墙反弹
         if (ball_y_next <= BALL_RADIUS)
             ball_dy_next = 1'b1;
-
         // 木板碰撞
         if (ball_y_next + BALL_RADIUS >= V_VALID - PADDLE_H &&
             ball_y_next - BALL_RADIUS <= V_VALID - PADDLE_H + BALL_SPEED + 2 &&
             ball_x_next >= paddle_x - PADDLE_W/2 &&
             ball_x_next <= paddle_x + PADDLE_W/2)
         begin
-            ball_dy_next = 1'b0;  // 向上
-            if (ball_x_next < paddle_x - PADDLE_W/6)      ball_dx_next = 1'b0;
+            ball_dy_next = 1'b0; // 向上
+            if (ball_x_next < paddle_x - PADDLE_W/6) ball_dx_next = 1'b0;
             else if (ball_x_next > paddle_x + PADDLE_W/6) ball_dx_next = 1'b1;
         end
-
         // === 砖块碰撞检测（只在 PLAY 状态）===
         if (state == STATE_PLAY && !hit_brick_this_frame) begin
             integer i, j;
@@ -143,7 +123,6 @@ end
                         reg [9:0] bx1 = bx0 + BRICK_W - 1;
                         reg [9:0] by0 = BRICK_START_Y + j*(BRICK_H + BRICK_GAP);
                         reg [9:0] by1 = by0 + BRICK_H - 1;
-
                         if (ball_x_next + BALL_RADIUS >= bx0 &&
                             ball_x_next - BALL_RADIUS <= bx1 &&
                             ball_y_next + BALL_RADIUS >= by0 &&
@@ -151,7 +130,7 @@ end
                         begin
                             brick_to_destroy = j*BRICK_COLS + i;
                             ball_dy_next = 1'b1;
-                            if (ball_x_next < bx0 - 5)      ball_dx_next = 1'b1;
+                            if (ball_x_next < bx0 - 5) ball_dx_next = 1'b1;
                             else if (ball_x_next > bx1 + 5) ball_dx_next = 1'b0;
                             hit_brick_this_frame = 1;
                         end
@@ -160,48 +139,52 @@ end
             end
         end
     end
-
     // === 每帧更新逻辑 ===
     always @(posedge vga_clk or negedge sys_rst_n) begin
         if (!sys_rst_n) begin
-            ball_x  <= 320; ball_y <= 100;
-            ball_dx <= 1;   ball_dy <= 1;
+            ball_x <= 320; ball_y <= 100;
+            ball_dx <= 1; ball_dy <= 1;
             paddle_x <= 280;
         end
         else if (frame_end) begin
             if (state == STATE_PLAY) begin
-                // 木板移动
-                if (!btn_left  && paddle_x > PADDLE_W/2)                  paddle_x <= paddle_x - PADDLE_SPEED;
-                if (!btn_right && paddle_x < H_VALID - PADDLE_W/2 - 1)    paddle_x <= paddle_x + PADDLE_SPEED;
+if (!btn_left || !btn_right) begin
+     reg [9:0] paddle_x_candidate = paddle_x;
+     if (!btn_left)
+         paddle_x_candidate = paddle_x - PADDLE_SPEED;
+     else if (!btn_right)
+         paddle_x_candidate = paddle_x + PADDLE_SPEED;
 
+     if (paddle_x_candidate < PADDLE_W/2)
+         paddle_x <= PADDLE_W/2;
+     else if (paddle_x_candidate > H_VALID - 1 - PADDLE_W/2)
+         paddle_x <= H_VALID - 1 - PADDLE_W/2;
+     else
+         paddle_x <= paddle_x_candidate;
+end
                 // 小球位置更新
-                ball_x  <= ball_x_next;
-                ball_y  <= ball_y_next;
+                ball_x <= ball_x_next;
+                ball_y <= ball_y_next;
                 ball_dx <= ball_dx_next;
                 ball_dy <= ball_dy_next;
-
                 // 真正消砖
                 if (brick_to_destroy < BRICK_COLS*BRICK_ROWS)
                     brick_alive[brick_to_destroy] <= 1'b0;
-
                 // 防卡死
                 if (ball_y > V_VALID - PADDLE_H - BALL_RADIUS)
                     ball_y <= V_VALID - PADDLE_H - BALL_RADIUS - 1;
             end
-
-            // 开始新游戏时重置
+            // 开始新游戏时重置（修改：条件调整为从 END/WIN 到 PLAY）
             if ((state == STATE_END || state == STATE_WIN) && next_state == STATE_PLAY) begin
                 ball_x <= 320; ball_y <= 100;
-                ball_dx <= 1;  ball_dy <= 1;
+                ball_dx <= 1; ball_dy <= 1;
                 paddle_x <= 280;
             end
         end
     end
-
     // === 绘图逻辑 ===
     always @(*) begin
         pix_data = WHITE;
-
         // 绘制砖块
         if (state == STATE_PLAY || state == STATE_WIN) begin
             integer i, j;
@@ -218,23 +201,19 @@ end
                 end
             end
         end
-
         // 小球
         if (state == STATE_PLAY || state == STATE_WIN)
             if ((pix_x - ball_x)*(pix_x - ball_x) + (pix_y - ball_y)*(pix_y - ball_y) <= BALL_RADIUS*BALL_RADIUS)
                 pix_data = RED;
-
         // 木板
         if (state == STATE_PLAY || state == STATE_WIN)
             if (pix_x >= paddle_x - PADDLE_W/2 && pix_x <= paddle_x + PADDLE_W/2 &&
                 pix_y >= V_VALID - PADDLE_H && pix_y <= V_VALID-1)
                 pix_data = BLACK;
-
         // === 界面文字 ===
         case (state)
             STATE_START: begin
                 pix_data = WHITE;
-
                 // ------ S ------
                 if (pix_x >= 185 && pix_x < 235 && pix_y >= 200 && pix_y < 280) begin
                     if ((pix_y >= 200 && pix_y < 218) ||
@@ -270,10 +249,9 @@ end
                         pix_data = BLACK;
                 end
             end
-
-            STATE_END: begin
+            STATE_END:
+            begin
                 pix_data = WHITE;
-
                 // ------ E ------
                 if (pix_x >= 230 && pix_x < 280 && pix_y >= 200 && pix_y < 280) begin
                     if (pix_y < 218 || (pix_y >= 235 && pix_y < 245) || pix_y >= 262 || pix_x < 248)
@@ -285,7 +263,7 @@ end
                         (pix_x >= 340 && pix_x < 360) ||
                         (pix_x >= 320 && pix_x < 340 &&
                          pix_y >= 200 + (pix_x-320)*60/20 &&
-                         pix_y <  224 + (pix_x-320)*60/20))
+                         pix_y < 224 + (pix_x-320)*60/20))
                         pix_data = BLACK;
                 end
                 // ------ D ------
@@ -300,34 +278,31 @@ end
                         pix_data = BLACK;
                 end
             end
-
-            STATE_WIN: begin
+            STATE_WIN: begin 
+                pix_data = WHITE;
                 // ------ W ------
-                if (pix_x >= 350 && pix_x < 410 && pix_y >= 200 && pix_y < 280) begin
-                    if ((pix_x >= 350 && pix_x < 365 && pix_y >= 200 + (pix_x-350)*4   && pix_y < 200 + (pix_x-350)*4 + 50) ||
-                        (pix_x >= 365 && pix_x < 380 && pix_y >= 260 - (pix_x-365)*4   && pix_y < 260 - (pix_x-365)*4 + 39) ||
-                        (pix_x >= 380 && pix_x < 395 && pix_y >= 200 + (pix_x-380)*4   && pix_y < 224 + (pix_x-380)*4 + 35) ||
-                        (pix_x >= 395 && pix_x < 410 && pix_y >= 260 - (pix_x-395)*60/14 && pix_y < 284 - (pix_x-395)*60/14 + 39))
+                if (pix_x >= 205 && pix_x < 265 && pix_y >= 200 && pix_y < 280) begin
+                    if ((pix_x >= 205 && pix_x < 220 && pix_y >= 200 + (pix_x-205)*4 && pix_y < 200 + (pix_x-205)*4 + 50) ||
+                        (pix_x >= 220 && pix_x < 235 && pix_y >= 260 - (pix_x-220)*4 && pix_y < 260 - (pix_x-220)*4 + 39) ||
+                        (pix_x >= 235 && pix_x < 250 && pix_y >= 200 + (pix_x-235)*4 && pix_y < 224 + (pix_x-235)*4 + 35) ||
+                        (pix_x >= 250 && pix_x < 265 && pix_y >= 260 - (pix_x-250)*60/14 && pix_y < 275 - (pix_x-250)*60/14 + 30))
                         pix_data = BLACK;
                 end
                 // ------ I ------
-                else if (pix_x >= 425 && pix_x < 485 && pix_y >= 200 && pix_y < 280) begin
-                    if ((pix_y >= 200 && pix_y < 218) || (pix_y >= 262 && pix_y < 280) || (pix_x >= 448 && pix_x < 463))
+                else if (pix_x >= 280 && pix_x < 340 && pix_y >= 200 && pix_y < 280) begin
+                    if ((pix_y >= 200 && pix_y < 218) || (pix_y >= 262 && pix_y < 280) || (pix_x >= 303 && pix_x < 318))
                         pix_data = BLACK;
                 end
                 // ------ N ------
-                else if (pix_x >= 500 && pix_x < 560 && pix_y >= 200 && pix_y < 280) begin
-                    if ((pix_x >= 500 && pix_x < 520) ||
-                        (pix_x >= 540 && pix_x < 560) ||
-                        (pix_x >= 520 && pix_x < 540 &&
-                         pix_y >= 200 + (pix_x-520)*60/20 &&
-                         pix_y <  224 + (pix_x-520)*60/20))
+                else if (pix_x >= 355 && pix_x < 415 && pix_y >= 200 && pix_y < 280) begin
+                    if ((pix_x >= 355 && pix_x < 375) ||
+                        (pix_x >= 395 && pix_x < 415) ||
+                        (pix_x >= 375 && pix_x < 395 &&
+                         pix_y >= 200 + (pix_x-375)*60/20 &&
+                         pix_y < 224 + (pix_x-375)*60/20))
                         pix_data = BLACK;
                 end
             end
         endcase
-
     end
-
 endmodule
-
